@@ -1,0 +1,42 @@
+body, html, .app {
+  background: #fdf8e4;
+  color: #330000;
+  font-family: sans-serif;
+  margin: 0;
+}
+header {
+  background: #330000;
+  color: white;
+  text-align: center;
+  padding: 20px;
+}
+header .banner {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+}
+header h1 {
+  margin: 10px 0;
+}
+.status {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-top: 10px;
+}
+.status.ok { background: #a00; color: white; }
+.status.bad { background: #555; color: white; }
+.key-manager, .tools, .generic {
+  margin: 20px;
+}
+.tools button {
+  margin-right: 5px;
+}
+.result {
+  background: white;
+  border: 1px solid #ccc;
+  padding: 10px;
+  margin: 20px;
+  white-space: pre-wrap;
+  text-align: left;
+}
