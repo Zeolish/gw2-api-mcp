@@ -4,3 +4,4 @@ tests/*/bin/
 tests/*/obj/
 node_modules/
 dist/
+/.vs/gw2-api-mcp

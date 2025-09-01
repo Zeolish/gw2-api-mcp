@@ -13,6 +13,9 @@ using Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5123";
+builder.WebHost.UseUrls($"http://localhost:{port}");
+
 builder.Services.Configure<JsonOptions>(o =>
 {
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
