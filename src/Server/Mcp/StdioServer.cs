@@ -6,13 +6,13 @@ namespace Server.Mcp;
 public class StdioServer
 {
     private readonly ISecretStore _store;
-    private readonly IHttpClientFactory _factory;
+    private readonly Gw2ProxyService _proxy;
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
 
-    public StdioServer(ISecretStore store, IHttpClientFactory factory)
+    public StdioServer(ISecretStore store, Gw2ProxyService proxy)
     {
         _store = store;
-        _factory = factory;
+        _proxy = proxy;
     }
 
     public async Task RunAsync(TextReader? input = null, TextWriter? output = null)
@@ -85,19 +85,18 @@ public class StdioServer
 
     private async Task<JsonElement> RequestAsync(string path, string? query)
     {
-        var key = await _store.GetApiKeyAsync();
-        if (key == null)
+        try
+        {
+            var resp = await _proxy.GetAsync(path, string.IsNullOrEmpty(query) ? null : "?" + query);
+            if (resp.StatusCode != System.Net.HttpStatusCode.OK)
+                throw new RpcError("HTTP " + (int)resp.StatusCode, (int)resp.StatusCode, resp.Body, null);
+            using var doc = JsonDocument.Parse(resp.Body);
+            return doc.RootElement.Clone();
+        }
+        catch (MissingApiKeyException)
+        {
             throw new RpcError("Missing API key", -32001, new MissingKeyError(), null);
-        var client = _factory.CreateClient("gw2");
-        var url = "v2/" + path.TrimStart('/');
-        if (!string.IsNullOrEmpty(query))
-            url += "?" + query;
-        var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
-        var resp = await client.SendAsync(req);
-        resp.EnsureSuccessStatusCode();
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-        return doc.RootElement.Clone();
+        }
     }
 
     private class RpcError : Exception

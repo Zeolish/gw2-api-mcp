@@ -8,7 +8,7 @@ public class SecretStoreTests
     [Fact]
     public async Task RoundTripEncryptsAndDecrypts()
     {
-        var store = new SecretStore();
+        var store = new AesGcmSecretStore();
         await store.SaveApiKeyAsync("abc123");
         Assert.True(await store.HasApiKeyAsync());
         var key = await store.GetApiKeyAsync();
@@ -28,7 +28,7 @@ public class SecretStoreTests
         File.Move(keyFile, backup);
         try
         {
-            Assert.Throws<FileNotFoundException>(() => new SecretStore());
+            Assert.Throws<InvalidOperationException>(() => new AesGcmSecretStore());
         }
         finally
         {
