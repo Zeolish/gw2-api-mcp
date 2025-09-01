@@ -23,6 +23,7 @@
     <Content Include="..\WebUI\dist\**\*" CopyToPublishDirectory="PreserveNewest">
       <Link>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Content>
+    <Content Remove="wwwroot/.gitkeep" />
   </ItemGroup>
 
 </Project>
