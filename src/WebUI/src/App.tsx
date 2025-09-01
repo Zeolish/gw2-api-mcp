@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 
-const baseUrl = import.meta.env.VITE_BACKEND_BASE_URL || 'http://127.0.0.1:5123';
-
 function App() {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [keyInput, setKeyInput] = useState('');
@@ -11,7 +9,7 @@ function App() {
   const [query, setQuery] = useState('');
 
   const reload = async () => {
-    const res = await fetch(`${baseUrl}/api/status`);
+    const res = await fetch(`/api/status`);
     const data = await res.json();
     setHasApiKey(data.hasApiKey);
   };
@@ -21,22 +19,30 @@ function App() {
   }, []);
 
   const saveKey = async () => {
-    await fetch(`${baseUrl}/api/apikey`, {
+    const res = await fetch(`/api/apikey`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: keyInput })
     });
-    setKeyInput('');
-    reload();
+    if (res.ok) {
+      setKeyInput('');
+      reload();
+    } else {
+      setResult(await res.json());
+    }
   };
 
   const deleteKey = async () => {
-    await fetch(`${baseUrl}/api/apikey`, { method: 'DELETE' });
-    reload();
+    const res = await fetch(`/api/apikey`, { method: 'DELETE' });
+    if (res.ok) {
+      reload();
+    } else {
+      setResult(await res.json());
+    }
   };
 
   const doRequest = async (p: string) => {
-    const url = `${baseUrl}/api/gw2/${p}`;
+    const url = `/api/gw2/${p}`;
     const res = await fetch(url);
     const data = await res.json();
     setResult(data);

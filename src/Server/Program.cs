@@ -1,11 +1,15 @@
-using Microsoft.AspNetCore.Http.Json;
-using Polly;
-using Polly.Extensions.Http;
-using Server.Services;
-using Server.Mcp;
+using System.Data;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http.Json;
+using Microsoft.Data.Sqlite;
+using Polly;
+using Polly.Extensions.Http;
+using Server.Mcp;
+using Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,11 +18,23 @@ builder.Services.Configure<JsonOptions>(o =>
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
+builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddHttpContextAccessor();
 
-builder.Services.AddSingleton<ISecretStore, SecretStore>();
+var appData = Path.Combine(AppContext.BaseDirectory, "AppData");
+Directory.CreateDirectory(appData);
+var connectionString = $"Data Source={Path.Combine(appData, "app.db")}";
+
+builder.Services.AddScoped<IDbConnection>(_ =>
+{
+    var conn = new SqliteConnection(connectionString);
+    conn.Open();
+    return conn;
+});
+
+builder.Services.AddSingleton<ISecretStore, AesGcmSecretStore>();
+builder.Services.AddTransient<Gw2ProxyService>();
 
 builder.Services.AddHttpClient("gw2", c =>
 {
@@ -33,6 +49,39 @@ static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy() =>
 
 var app = builder.Build();
 
+app.UseExceptionHandler(a =>
+{
+    a.Run(async context =>
+    {
+        var error = context.Features.Get<IExceptionHandlerPathFeature>()?.Error;
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        if (error is MissingApiKeyException)
+        {
+            logger.LogWarning(error, "Missing API key");
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "MissingApiKey",
+                message = error.Message,
+                howTo = new[] { "Open Web UI", "Paste key", "Save" }
+            });
+        }
+        else
+        {
+            logger.LogError(error, "Unhandled exception");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsJsonAsync(new { error = "ServerError", message = "An unexpected error occurred" });
+        }
+    });
+});
+
+app.Use(async (ctx, next) =>
+{
+    var logger = ctx.RequestServices.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation("{method} {path}", ctx.Request.Method, ctx.Request.Path);
+    await next();
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -44,53 +93,14 @@ else
     app.UseStaticFiles();
 }
 
-app.MapGet("/api/status", async (ISecretStore store, IHttpContextAccessor accessor) => new
-{
-    server = Environment.MachineName,
-    port = accessor.HttpContext?.Connection.LocalPort,
-    hasApiKey = await store.HasApiKeyAsync()
-});
-
-app.MapGet("/api/apikey", async (ISecretStore store) => new { hasApiKey = await store.HasApiKeyAsync() });
-
-app.MapPost("/api/apikey", async (ISecretStore store, ApiKeyDto dto) =>
-{
-    await store.SaveApiKeyAsync(dto.Key);
-    return Results.Ok();
-});
-
-app.MapDelete("/api/apikey", async (ISecretStore store) =>
-{
-    await store.DeleteApiKeyAsync();
-    return Results.Ok();
-});
-
-var gw2 = app.MapGroup("/api/gw2");
-
-gw2.MapGet("/{**path}", async (string path, HttpContext ctx, ISecretStore store, IHttpClientFactory factory) =>
-{
-    var key = await store.GetApiKeyAsync();
-    if (key == null)
-    {
-        return Results.Json(new MissingKeyError(), statusCode: 400);
-    }
-    var client = factory.CreateClient("gw2");
-    var forward = "v2/" + path;
-    if (ctx.Request.QueryString.HasValue)
-        forward += ctx.Request.QueryString.Value;
-    var req = new HttpRequestMessage(HttpMethod.Get, forward);
-    req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
-    var resp = await client.SendAsync(req);
-    var body = await resp.Content.ReadAsStringAsync();
-    return Results.Content(body, resp.Content.Headers.ContentType?.ToString() ?? "application/json", System.Text.Encoding.UTF8, (int)resp.StatusCode);
-});
+app.MapControllers();
 
 if (Environment.GetEnvironmentVariable("MCP_STDIO") == "1")
 {
     using var scope = app.Services.CreateScope();
     var store = scope.ServiceProvider.GetRequiredService<ISecretStore>();
-    var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-    var server = new StdioServer(store, factory);
+    var proxy = scope.ServiceProvider.GetRequiredService<Gw2ProxyService>();
+    var server = new StdioServer(store, proxy);
     await server.RunAsync();
 }
 else
@@ -98,13 +108,5 @@ else
     app.Run();
 }
 
-record ApiKeyDto(string Key);
-
-record MissingKeyError
-{
-    public string Error => "MissingApiKey";
-    public string Message => "Guild Wars 2 API key not configured";
-    public string[] HowTo => new[] { "POST /api/apikey { key }", "or via MCP gw2.saveApiKey" };
-}
-
 public partial class Program { }
+
